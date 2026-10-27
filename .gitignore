@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment / secrets
+.env
+!.env.example
+
+# Uploaded videos and extracted frames
+storage/
+backend/media/
+
+# Django
+backend/staticfiles/
+*.sqlite3
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
