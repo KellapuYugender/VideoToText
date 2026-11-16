@@ -3,15 +3,18 @@
     python -m vision.live --source 0                 # webcam
     python -m vision.live --source match.mp4         # file
     python -m vision.live --source match.mp4 --no-show --save out.mp4
+    python -m vision.live --source match.mp4 --commentary   # + VLM commentary
 
 Press q or Esc in the window to stop.
 """
 
 import argparse
+import textwrap
 import time
 
 import cv2
 
+from .commentary import DEFAULT_VLM, CommentaryFeed, CommentaryLine
 from .detector import DEFAULT_MODEL, Detection, Tracker
 from .events import EventTracker
 from .source import FrameSource
@@ -42,6 +45,16 @@ def draw(image, detections: list[Detection], fps: float, counts) -> None:
     )
 
 
+def draw_caption(image, text: str) -> None:
+    h, w = image.shape[:2]
+    lines = textwrap.wrap(text, width=max(20, w // 11))[-2:]
+    top = h - 12 - 26 * len(lines)
+    cv2.rectangle(image, (0, top - 8), (w, h), (0, 0, 0), -1)
+    for i, line in enumerate(lines):
+        y = top + 18 + 26 * i
+        cv2.putText(image, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
@@ -53,10 +66,26 @@ def main() -> None:
     parser.add_argument("--max-frames", type=int, default=0, help="stop after N frames (0 = all)")
     parser.add_argument("--no-show", action="store_true", help="don't open a window")
     parser.add_argument("--save", help="write annotated video to this path")
+    parser.add_argument("--commentary", action="store_true", help="narrate with a VLM")
+    parser.add_argument("--vlm", default=DEFAULT_VLM, help="Hugging Face model id")
+    parser.add_argument("--interval", type=float, default=3.0, help="seconds between lines")
     args = parser.parse_args()
 
     tracker = Tracker(args.model, conf=args.conf, imgsz=args.imgsz)
     events = EventTracker()
+    feed = None
+    caption = ""
+
+    if args.commentary:
+        from .commentary import Commentator
+
+        def on_line(line: CommentaryLine) -> None:
+            nonlocal caption
+            caption = line.text
+            print(f"[{line.timestamp:6.1f}s] {line.text}  ({line.latency:.1f}s)")
+
+        print(f"Loading {args.vlm} ...")
+        feed = CommentaryFeed(Commentator(args.vlm), on_line, interval=args.interval)
     writer = None
     fps = 0.0
     processed = 0
@@ -67,12 +96,17 @@ def main() -> None:
         for frame in source.frames():
             tick = time.perf_counter()
             detections = tracker(frame.image)
-            for event in events.update(detections, frame.timestamp):
+            new_events = events.update(detections, frame.timestamp)
+            for event in new_events:
                 print(event.describe())
+            if feed is not None:
+                feed.push(frame, new_events, events.counts())
             elapsed = time.perf_counter() - tick
             fps = 0.9 * fps + 0.1 * (1 / elapsed) if fps else 1 / elapsed
 
             draw(frame.image, detections, fps, events.counts())
+            if caption:
+                draw_caption(frame.image, caption)
             if args.save:
                 if writer is None:
                     h, w = frame.image.shape[:2]
@@ -88,6 +122,8 @@ def main() -> None:
             if args.max_frames and processed >= args.max_frames:
                 break
 
+    if feed is not None:
+        feed.close()
     if writer is not None:
         writer.release()
     cv2.destroyAllWindows()
