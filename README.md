@@ -3,8 +3,8 @@
 Real-time video-to-text, like live sports commentary: point it at a video file, webcam or
 stream and it tracks what is on screen and narrates it as it happens. All models run locally.
 
-> Status: in development. The vision pipeline and the WebSocket API are working; the React UI
-> and saved sessions are next.
+> Status: in development. Live detection, commentary, the WebSocket API and the React UI
+> work end to end; saving sessions to the database is next.
 
 ## How it works
 
@@ -54,6 +54,21 @@ Face cache).
 
 Admin: http://127.0.0.1:8000/admin/
 
+## Frontend setup
+
+Prerequisites: Node.js 20+. Keep the Django server running, then:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:5173, pick a video (or upload one, or use the webcam) and press
+**Start**. The page shows the video with tracked boxes, a live commentary feed that is also
+read aloud (browser text-to-speech), what is on screen, and enter/leave events. Vite proxies
+`/api` and `/ws` to Django on port 8000.
+
 ## Try the pipeline without the server
 
 ```powershell
@@ -65,6 +80,7 @@ cd backend
 ## Live API
 
 - `GET /api/live/sources/` lists the videos in `backend/media/videos/` that can be streamed.
+- `POST /api/live/videos/` uploads a video (multipart field `file`) and returns its `name`.
 - WebSocket `ws://127.0.0.1:8000/ws/live/`:
   - send `{"action": "start", "source": "match.mp4", "commentary": true}`; `source` is a
     file in `media/videos/`, a webcam index such as `"0"`, or an `rtsp://`/`http(s)://` URL
