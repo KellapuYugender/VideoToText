@@ -15,6 +15,10 @@ htmlcov/
 storage/
 backend/media/
 
+# Model weights (downloaded on first run)
+backend/weights/
+*.pt
+
 # Django
 backend/staticfiles/
 *.sqlite3
