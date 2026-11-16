@@ -132,6 +132,7 @@ CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
 # Files a client may stream live from are looked up under this folder.
 VIDEO_DIR = env.path("VIDEO_DIR", default=MEDIA_ROOT / "videos")
 ALLOW_WEBCAM = env.bool("ALLOW_WEBCAM", default=True)
+MAX_UPLOAD_MB = env.int("MAX_UPLOAD_MB", default=500)
 
 TORCH_DEVICE = env("TORCH_DEVICE", default="cpu")  # "cuda" on a GPU machine
 YOLO_MODEL = env("YOLO_MODEL", default=str(BASE_DIR / "weights" / "yolo11n.pt"))

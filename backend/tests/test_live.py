@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from channels.routing import URLRouter
 from channels.testing import WebsocketCommunicator
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 from live import engines
@@ -131,3 +132,25 @@ async def test_stop_ends_stream_early(video_dir, fake_models):
     await communicator.disconnect()
 
     assert len([m for m in messages if m["type"] == "frame"]) < 20
+
+
+def test_upload_saves_video_without_overwriting(client, video_dir):
+    url = reverse("live-upload")
+    first = client.post(url, {"file": SimpleUploadedFile("my match.mp4", b"data")})
+    second = client.post(url, {"file": SimpleUploadedFile("my match.mp4", b"more")})
+
+    assert first.status_code == 201 and first.json() == {"name": "my_match.mp4"}
+    assert second.status_code == 201 and second.json()["name"] != "my_match.mp4"
+    assert (video_dir / "my_match.mp4").read_bytes() == b"data"
+
+
+def test_upload_rejects_other_types_and_large_files(client, video_dir, settings):
+    url = reverse("live-upload")
+    bad_type = client.post(url, {"file": SimpleUploadedFile("evil.py", b"print()")})
+    assert bad_type.status_code == 400
+    assert client.post(url, {}).status_code == 400
+
+    settings.MAX_UPLOAD_MB = 0
+    too_big = client.post(url, {"file": SimpleUploadedFile("big.mp4", b"x")})
+    assert too_big.status_code == 413
+    assert not (video_dir / "evil.py").exists()
