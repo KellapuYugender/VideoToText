@@ -44,11 +44,13 @@ class FrameSource:
 
         With ``realtime``, a file is paced like a live feed: frames are skipped when the
         consumer falls behind the wall clock, and delivery waits when it is ahead.
+        The clock starts once the first frame has been consumed, so slow model
+        warm-up on that frame doesn't skip the start of the video.
         """
         index = 0
-        started = time.perf_counter()
+        started: float | None = None
         while True:
-            if realtime and not self.is_live:
+            if realtime and not self.is_live and started is not None:
                 elapsed = time.perf_counter() - started
                 behind = int(elapsed * self.fps) - index
                 for _ in range(behind):
@@ -65,6 +67,8 @@ class FrameSource:
             timestamp = pos_ms / 1000 if pos_ms > 0 else index / self.fps
             yield Frame(index=index, timestamp=timestamp, image=image)
             index += 1
+            if started is None:
+                started = time.perf_counter() - index / self.fps
 
     def close(self) -> None:
         self.cap.release()
