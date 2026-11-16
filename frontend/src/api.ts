@@ -1,4 +1,4 @@
-import type { Sources } from './types'
+import type { Page, SessionDetail, SessionSummary, Sources } from './types'
 
 async function errorMessage(response: Response): Promise<string> {
   try {
@@ -23,6 +23,23 @@ export async function uploadVideo(file: File): Promise<string> {
   const response = await fetch('/api/live/videos/', { method: 'POST', body: form })
   if (!response.ok) throw new Error(await errorMessage(response))
   return (await response.json()).name
+}
+
+export async function fetchSessions(url = '/api/sessions/'): Promise<Page<SessionSummary>> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(await errorMessage(response))
+  return response.json()
+}
+
+export async function fetchSession(id: number): Promise<SessionDetail> {
+  const response = await fetch(`/api/sessions/${id}/`)
+  if (!response.ok) throw new Error(await errorMessage(response))
+  return response.json()
+}
+
+export async function deleteSession(id: number): Promise<void> {
+  const response = await fetch(`/api/sessions/${id}/`, { method: 'DELETE' })
+  if (!response.ok) throw new Error(await errorMessage(response))
 }
 
 export function liveSocketUrl(): string {

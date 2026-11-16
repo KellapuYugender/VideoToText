@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatTime } from './api'
 import { Controls } from './components/Controls'
+import { History } from './components/History'
 import { Sidebar } from './components/Sidebar'
 import { drawFrame } from './draw'
 import type { FrameMessage, SessionMessage } from './types'
@@ -17,6 +18,8 @@ const STATUS_LABEL: Record<Status, string> = {
 
 export default function App() {
   const [options, setOptions] = useState({ commentary: true, voice: true, boxes: true })
+  const [view, setView] = useState<'live' | 'history'>('live')
+  const [historyId, setHistoryId] = useState<number | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const latestRef = useRef<{ frame: FrameMessage; session: SessionMessage } | null>(null)
@@ -69,6 +72,27 @@ export default function App() {
           <h1>VideoToText</h1>
           <span className="tagline">live AI commentary</span>
         </div>
+        <nav className="tabs" aria-label="Views">
+          <button
+            type="button"
+            className={view === 'live' ? 'tab active' : 'tab'}
+            aria-current={view === 'live'}
+            onClick={() => setView('live')}
+          >
+            Live
+          </button>
+          <button
+            type="button"
+            className={view === 'history' ? 'tab active' : 'tab'}
+            aria-current={view === 'history'}
+            onClick={() => {
+              setHistoryId(null)
+              setView('history')
+            }}
+          >
+            History
+          </button>
+        </nav>
         <div className={`status ${stream.status}`}>
           <span className="pulse" aria-hidden />
           {STATUS_LABEL[stream.status]}
@@ -80,45 +104,66 @@ export default function App() {
         </div>
       </header>
 
-      <Controls
-        running={running}
-        speechSupported={speechSupported}
-        options={options}
-        onOptionsChange={setOptions}
-        onStart={(source) => stream.start(source, options.commentary)}
-        onStop={stream.stop}
-      />
+      {view === 'history' && <History initialId={historyId} />}
 
-      {stream.error && (
-        <div className="banner" role="alert">
-          {stream.error}
-        </div>
-      )}
-
-      <main className="layout">
-        <section className="stage">
-          <canvas ref={canvasRef} className={hasPicture ? '' : 'hidden'} />
-          {!hasPicture && (
-            <div className="placeholder">
-              {running
-                ? 'Loading models and opening the source…'
-                : 'Pick a video or the webcam, then press Start.'}
-            </div>
-          )}
-          {latestLine && hasPicture && (
-            <div className="caption" key={latestLine.timestamp}>
-              {latestLine.text}
-            </div>
-          )}
-        </section>
-
-        <Sidebar
-          lines={stream.lines}
-          events={stream.events}
-          counts={stream.counts}
-          waitingForCommentary={running && options.commentary}
+      {/* Kept mounted while hidden so a running stream survives a look at History. */}
+      <div className="live-view" hidden={view !== 'live'}>
+        <Controls
+          running={running}
+          speechSupported={speechSupported}
+          options={options}
+          onOptionsChange={setOptions}
+          onStart={(source) => stream.start(source, options.commentary)}
+          onStop={stream.stop}
         />
-      </main>
+
+        {stream.error && (
+          <div className="banner" role="alert">
+            {stream.error}
+          </div>
+        )}
+
+        {stream.status === 'ended' && stream.session && (
+          <div className="notice">
+            Session saved.
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setHistoryId(stream.session?.session_id ?? null)
+                setView('history')
+              }}
+            >
+              View transcript
+            </button>
+          </div>
+        )}
+
+        <main className="layout">
+          <section className="stage">
+            <canvas ref={canvasRef} className={hasPicture ? '' : 'hidden'} />
+            {!hasPicture && (
+              <div className="placeholder">
+                {running
+                  ? 'Loading models and opening the source…'
+                  : 'Pick a video or the webcam, then press Start.'}
+              </div>
+            )}
+            {latestLine && hasPicture && (
+              <div className="caption" key={latestLine.timestamp}>
+                {latestLine.text}
+              </div>
+            )}
+          </section>
+
+          <Sidebar
+            lines={stream.lines}
+            events={stream.events}
+            counts={stream.counts}
+            waitingForCommentary={running && options.commentary}
+          />
+        </main>
+      </div>
     </div>
   )
 }

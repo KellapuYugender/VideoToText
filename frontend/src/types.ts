@@ -9,6 +9,7 @@ export type Detection = {
 
 export type SessionMessage = {
   type: 'session'
+  session_id: number // saved session, see /api/sessions/
   width: number
   height: number
   fps: number
@@ -50,3 +51,35 @@ export type ServerMessage =
   | { type: 'end' }
 
 export type Sources = { videos: string[]; webcam: boolean }
+
+// Saved sessions (backend/live/serializers.py).
+
+export type SessionStatus = 'running' | 'completed' | 'stopped' | 'failed'
+
+export type SessionSummary = {
+  id: number
+  source: string
+  kind: 'file' | 'webcam' | 'stream'
+  status: SessionStatus
+  error: string
+  started_at: string
+  ended_at: string | null
+  width: number | null
+  height: number | null
+  fps: number | null
+  duration: number
+  frames_processed: number
+  events_count: number
+  peak_counts: Record<string, number>
+  commentary_enabled: boolean
+  yolo_model: string
+  vlm_model: string
+  lines_count: number
+  preview: string
+}
+
+export type SavedLine = { id: number; timestamp: number; text: string; latency: number }
+
+export type SessionDetail = SessionSummary & { lines: SavedLine[] }
+
+export type Page<T> = { count: number; next: string | null; results: T[] }

@@ -3,8 +3,8 @@
 Real-time video-to-text, like live sports commentary: point it at a video file, webcam or
 stream and it tracks what is on screen and narrates it as it happens. All models run locally.
 
-> Status: in development. Live detection, commentary, the WebSocket API and the React UI
-> work end to end; saving sessions to the database is next.
+> Status: all five core pieces work end to end: live detection, commentary, the WebSocket
+> API, the React UI, and saved sessions.
 
 ## How it works
 
@@ -16,6 +16,8 @@ stream and it tracks what is on screen and narrates it as it happens. All models
    by the tracker's counts and events, and writes one line of commentary.
 4. **Stream**: Django Channels pushes frames, boxes, events and commentary to the browser
    over a WebSocket.
+5. **Save**: every stream is stored in PostgreSQL as a session (status, duration, peak
+   object counts, models used) with its full commentary transcript.
 
 ## Tech stack
 
@@ -66,8 +68,9 @@ npm run dev
 
 Open http://localhost:5173, pick a video (or upload one, or use the webcam) and press
 **Start**. The page shows the video with tracked boxes, a live commentary feed that is also
-read aloud (browser text-to-speech), what is on screen, and enter/leave events. Vite proxies
-`/api` and `/ws` to Django on port 8000.
+read aloud (browser text-to-speech), what is on screen, and enter/leave events. The
+**History** tab lists saved sessions with their transcripts (copy, download as .txt, delete).
+Vite proxies `/api` and `/ws` to Django on port 8000.
 
 ## Try the pipeline without the server
 
@@ -81,15 +84,20 @@ cd backend
 
 - `GET /api/live/sources/` lists the videos in `backend/media/videos/` that can be streamed.
 - `POST /api/live/videos/` uploads a video (multipart field `file`) and returns its `name`.
+- `GET /api/sessions/` lists saved sessions (newest first, paginated);
+  `GET /api/sessions/<id>/` includes the transcript; `DELETE` removes one.
 - WebSocket `ws://127.0.0.1:8000/ws/live/`:
   - send `{"action": "start", "source": "match.mp4", "commentary": true}`; `source` is a
     file in `media/videos/`, a webcam index such as `"0"`, or an `rtsp://`/`http(s)://` URL
   - send `{"action": "stop"}` to end it early
-  - receive `session` (size, fps), then `frame` (base64 JPEG, `detections` with boxes in
+  - receive `session` (`session_id`, size, fps), then `frame` (base64 JPEG, `detections` with boxes in
     source pixels, `counts`), `event` (entered/left), `commentary`, and finally `end`;
     `error` carries a `message`
 
 ## Tests and linting
+
+Tests run against SQLite (`config/settings_test.py`), so they don't need permission to
+create a Postgres test database.
 
 ```powershell
 cd backend
