@@ -1,34 +1,32 @@
 # VideoToText
 
-Upload a video and get a text description of the actions happening on screen: a timestamped
-narrative plus a short summary. All AI runs locally and free via [Ollama](https://ollama.com).
+Real-time video-to-text, like live sports commentary: point it at a video file, webcam or
+stream and it tracks what is on screen and narrates it as it happens. All models run locally.
 
-> Status: early development. The Django backend skeleton is in place; the video pipeline,
-> API and React frontend are next.
+> Status: in development. The vision pipeline and the WebSocket API are working; the React UI
+> and saved sessions are next.
 
 ## How it works
 
-1. **Probe** the video with `ffprobe` (duration, fps, resolution).
-2. **Segment** it into 4–6 s windows using scene detection (PySceneDetect).
-3. **Extract** 3 frames per segment with FFmpeg.
-4. **Caption** each segment with a local vision model (`qwen2.5vl:3b`), sending consecutive
-   frames together so the model can describe motion and actions.
-5. **Compose** the segment captions into a timestamped narrative and summary with a local text
-   model (`llama3.2:3b`).
-
-Processing runs as a background job (django-tasks, stored in Postgres) and the frontend polls
-for progress.
+1. **Capture**: OpenCV reads frames from a file, webcam or RTSP/HTTP stream. Files are paced
+   like a live feed, dropping frames if processing falls behind.
+2. **Detect and track** (every frame): YOLO11n + ByteTrack find objects and keep stable IDs;
+   objects entering or leaving become scene events.
+3. **Commentate** (every ~3 s, background thread): SmolVLM2 looks at recent frames, grounded
+   by the tracker's counts and events, and writes one line of commentary.
+4. **Stream**: Django Channels pushes frames, boxes, events and commentary to the browser
+   over a WebSocket.
 
 ## Tech stack
 
 | Layer | Choice |
 |---|---|
-| Backend | Python 3.14, Django 5.2 LTS, Django REST Framework |
-| Database / job queue | PostgreSQL, django-tasks + django-tasks-db |
-| AI runtime | Ollama (`qwen2.5vl:3b`, `llama3.2:3b`) |
-| Video processing | FFmpeg, PySceneDetect |
-| Frontend | React, Vite, TypeScript, Tailwind CSS |
-| Quality | pytest, pytest-django, Ruff |
+| Vision | OpenCV, PyTorch, Ultralytics YOLO11 + ByteTrack |
+| Commentary | SmolVLM2 via Hugging Face Transformers |
+| Backend | Python 3.14, Django 5.2 LTS, Django REST Framework, Channels + Daphne |
+| Database | PostgreSQL |
+| Frontend | React, Vite, TypeScript |
+| Quality | pytest, pytest-django, pytest-asyncio, Ruff |
 
 ## Backend setup (Windows)
 
@@ -37,6 +35,8 @@ Prerequisites: Python 3.12+ and PostgreSQL.
 ```powershell
 cd backend
 py -3.14 -m venv .venv
+# CPU-only PyTorch (skip on a CUDA machine)
+.venv\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 
 # Create the database (run in psql as the postgres superuser)
@@ -49,13 +49,29 @@ copy .env.example .env      # then edit DATABASE_URL and SECRET_KEY
 .venv\Scripts\python.exe manage.py runserver
 ```
 
-In a second terminal, start the background worker:
-
-```powershell
-.venv\Scripts\python.exe manage.py db_worker
-```
+Model weights download on first use (YOLO to `backend/weights/`, SmolVLM2 to the Hugging
+Face cache).
 
 Admin: http://127.0.0.1:8000/admin/
+
+## Try the pipeline without the server
+
+```powershell
+cd backend
+.venv\Scripts\python.exe -m vision.live --source 0                          # webcam
+.venv\Scripts\python.exe -m vision.live --source match.mp4 --commentary     # file + commentary
+```
+
+## Live API
+
+- `GET /api/live/sources/` lists the videos in `backend/media/videos/` that can be streamed.
+- WebSocket `ws://127.0.0.1:8000/ws/live/`:
+  - send `{"action": "start", "source": "match.mp4", "commentary": true}`; `source` is a
+    file in `media/videos/`, a webcam index such as `"0"`, or an `rtsp://`/`http(s)://` URL
+  - send `{"action": "stop"}` to end it early
+  - receive `session` (size, fps), then `frame` (base64 JPEG, `detections` with boxes in
+    source pixels, `counts`), `event` (entered/left), `commentary`, and finally `end`;
+    `error` carries a `message`
 
 ## Tests and linting
 

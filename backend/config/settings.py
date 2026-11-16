@@ -28,6 +28,7 @@ ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",  # ASGI runserver with WebSocket support; must come first
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -37,10 +38,10 @@ INSTALLED_APPS = [
     # Third party
     "corsheaders",
     "rest_framework",
-    "django_tasks",
-    "django_tasks_db",
+    "channels",
     # Local
     "videos",
+    "live",
 ]
 
 MIDDLEWARE = [
@@ -72,21 +73,12 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
 
 
 # Database (PostgreSQL), e.g. postgres://videototext:password@localhost:5433/videototext
 
 DATABASES = {"default": env.db("DATABASE_URL")}
-
-
-# Background tasks: the queue is stored in Postgres and run by `manage.py db_worker`.
-
-TASKS = {
-    "default": {
-        "BACKEND": "django_tasks_db.DatabaseBackend",
-        "QUEUES": ["default"],
-    }
-}
 
 
 # Password validation
@@ -135,14 +127,18 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
 
 
-# Video pipeline
+# Live pipeline (see the vision package)
 
-OLLAMA_URL = env("OLLAMA_URL", default="http://localhost:11434")
-VISION_MODEL = env("VISION_MODEL", default="qwen2.5vl:3b")
-TEXT_MODEL = env("TEXT_MODEL", default="llama3.2:3b")
+# Files a client may stream live from are looked up under this folder.
+VIDEO_DIR = env.path("VIDEO_DIR", default=MEDIA_ROOT / "videos")
+ALLOW_WEBCAM = env.bool("ALLOW_WEBCAM", default=True)
 
-MAX_VIDEO_SECONDS = env.int("MAX_VIDEO_SECONDS", default=600)
-SEGMENT_SECONDS = env.float("SEGMENT_SECONDS", default=5.0)
-FRAMES_PER_SEGMENT = env.int("FRAMES_PER_SEGMENT", default=3)
-MAX_SEGMENTS = env.int("MAX_SEGMENTS", default=40)
-FRAME_WIDTH = env.int("FRAME_WIDTH", default=448)
+TORCH_DEVICE = env("TORCH_DEVICE", default="cpu")  # "cuda" on a GPU machine
+YOLO_MODEL = env("YOLO_MODEL", default=str(BASE_DIR / "weights" / "yolo11n.pt"))
+YOLO_CONF = env.float("YOLO_CONF", default=0.35)
+VLM_MODEL = env("VLM_MODEL", default="HuggingFaceTB/SmolVLM2-256M-Video-Instruct")
+COMMENTARY_INTERVAL = env.float("COMMENTARY_INTERVAL", default=3.0)
+
+# Frames are re-encoded as JPEG for the browser.
+STREAM_MAX_WIDTH = env.int("STREAM_MAX_WIDTH", default=640)
+STREAM_JPEG_QUALITY = env.int("STREAM_JPEG_QUALITY", default=70)

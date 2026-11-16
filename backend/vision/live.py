@@ -14,6 +14,7 @@ import time
 
 import cv2
 
+from . import pipeline
 from .commentary import DEFAULT_VLM, CommentaryFeed, CommentaryLine
 from .detector import DEFAULT_MODEL, Detection, Tracker
 from .events import EventTracker
@@ -69,6 +70,9 @@ def main() -> None:
     parser.add_argument("--commentary", action="store_true", help="narrate with a VLM")
     parser.add_argument("--vlm", default=DEFAULT_VLM, help="Hugging Face model id")
     parser.add_argument("--interval", type=float, default=3.0, help="seconds between lines")
+    parser.add_argument(
+        "--realtime", action="store_true", help="play files at real speed, dropping frames"
+    )
     args = parser.parse_args()
 
     tracker = Tracker(args.model, conf=args.conf, imgsz=args.imgsz)
@@ -87,24 +91,17 @@ def main() -> None:
         print(f"Loading {args.vlm} ...")
         feed = CommentaryFeed(Commentator(args.vlm), on_line, interval=args.interval)
     writer = None
-    fps = 0.0
     processed = 0
     started = time.perf_counter()
 
     with FrameSource(args.source) as source:
         print(f"Source {args.source!r}: {source.size[0]}x{source.size[1]} @ {source.fps:.1f} FPS")
-        for frame in source.frames():
-            tick = time.perf_counter()
-            detections = tracker(frame.image)
-            new_events = events.update(detections, frame.timestamp)
-            for event in new_events:
+        for step in pipeline.run(source, tracker, events, feed, realtime=args.realtime):
+            frame = step.frame
+            for event in step.events:
                 print(event.describe())
-            if feed is not None:
-                feed.push(frame, new_events, events.counts())
-            elapsed = time.perf_counter() - tick
-            fps = 0.9 * fps + 0.1 * (1 / elapsed) if fps else 1 / elapsed
 
-            draw(frame.image, detections, fps, events.counts())
+            draw(frame.image, step.detections, step.fps, step.counts)
             if caption:
                 draw_caption(frame.image, caption)
             if args.save:

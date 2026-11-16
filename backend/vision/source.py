@@ -1,5 +1,6 @@
 """Frame sources: video files, webcams and network streams via OpenCV."""
 
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -38,9 +39,25 @@ class FrameSource:
             int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
         )
 
-    def frames(self) -> Iterator[Frame]:
+    def frames(self, realtime: bool = False) -> Iterator[Frame]:
+        """Yield frames in order.
+
+        With ``realtime``, a file is paced like a live feed: frames are skipped when the
+        consumer falls behind the wall clock, and delivery waits when it is ahead.
+        """
         index = 0
+        started = time.perf_counter()
         while True:
+            if realtime and not self.is_live:
+                elapsed = time.perf_counter() - started
+                behind = int(elapsed * self.fps) - index
+                for _ in range(behind):
+                    if not self.cap.grab():
+                        return
+                    index += 1
+                wait = index / self.fps - elapsed
+                if wait > 0:
+                    time.sleep(wait)
             ok, image = self.cap.read()
             if not ok:
                 break

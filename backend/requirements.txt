@@ -2,8 +2,8 @@ Django>=5.2,<5.3
 djangorestframework>=3.16
 django-cors-headers>=4.7
 django-environ>=0.12
-django-tasks>=0.12
-django-tasks-db>=0.13
+channels>=4.2
+daphne>=4.1
 psycopg[binary]>=3.2
 # Vision pipeline (install torch from the CPU index for CPU-only machines:
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu)
