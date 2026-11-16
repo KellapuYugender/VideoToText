@@ -46,3 +46,12 @@ def resolve_source(raw: str) -> str | int:
     if not path.is_file():
         raise ValueError(f"Video not found: {raw!r}")
     return str(path)
+
+
+def source_kind(resolved: str | int) -> str:
+    """Session.Kind value for a source returned by ``resolve_source``."""
+    if isinstance(resolved, int):
+        return "webcam"
+    if resolved.lower().startswith(STREAM_SCHEMES):
+        return "stream"
+    return "file"

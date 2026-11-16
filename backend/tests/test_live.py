@@ -3,12 +3,14 @@ import base64
 import cv2
 import numpy as np
 import pytest
+from asgiref.sync import sync_to_async
 from channels.routing import URLRouter
 from channels.testing import WebsocketCommunicator
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 from live import engines
+from live.models import CommentaryLine, Session
 from live.routing import websocket_urlpatterns
 from live.sources import resolve_source
 from vision.detector import Detection
@@ -77,7 +79,13 @@ async def receive_until_end(communicator, limit=200):
     raise AssertionError("stream never ended")
 
 
+def saved_session(pk):
+    session = Session.objects.get(pk=pk)
+    return session, list(session.lines.values_list("text", flat=True))
+
+
 @pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
 async def test_stream_sends_session_frames_events_commentary(video_dir, fake_models):
     communicator = WebsocketCommunicator(URLRouter(websocket_urlpatterns), "/ws/live/")
     connected, _ = await communicator.connect()
@@ -106,8 +114,19 @@ async def test_stream_sends_session_frames_events_commentary(video_dir, fake_mod
     assert by_type["commentary"][0]["text"] == "What a moment!"
     assert "error" not in by_type
 
+    saved, lines = await sync_to_async(saved_session)(session["session_id"])
+    assert saved.status == Session.Status.COMPLETED
+    assert (saved.source, saved.kind) == ("clip.mp4", "file")
+    assert (saved.width, saved.height) == (64, 48)
+    assert saved.frames_processed == len(frames)
+    assert saved.peak_counts == {"person": 1}
+    assert saved.events_count == len(by_type["event"])
+    assert saved.ended_at is not None
+    assert lines and set(lines) == {"What a moment!"}
+
 
 @pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
 async def test_stream_rejects_bad_source_and_unknown_action(video_dir, fake_models):
     communicator = WebsocketCommunicator(URLRouter(websocket_urlpatterns), "/ws/live/")
     await communicator.connect()
@@ -118,20 +137,42 @@ async def test_stream_rejects_bad_source_and_unknown_action(video_dir, fake_mode
     await communicator.send_json_to({"action": "dance"})
     assert (await communicator.receive_json_from())["type"] == "error"
     await communicator.disconnect()
+    assert await Session.objects.acount() == 0  # rejected before anything ran
 
 
 @pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
 async def test_stop_ends_stream_early(video_dir, fake_models):
     communicator = WebsocketCommunicator(URLRouter(websocket_urlpatterns), "/ws/live/")
     await communicator.connect()
     await communicator.send_json_to({"action": "start", "source": "clip.mp4", "commentary": False})
-    assert (await communicator.receive_json_from(timeout=10))["type"] == "session"
+    session = await communicator.receive_json_from(timeout=10)
+    assert session["type"] == "session"
 
     await communicator.send_json_to({"action": "stop"})
     messages = await receive_until_end(communicator)
     await communicator.disconnect()
 
     assert len([m for m in messages if m["type"] == "frame"]) < 20
+    saved, _ = await sync_to_async(saved_session)(session["session_id"])
+    assert saved.status == Session.Status.STOPPED
+    assert not saved.commentary_enabled and saved.vlm_model == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_unreadable_video_is_saved_as_failed(video_dir, fake_models):
+    (video_dir / "broken.mp4").write_bytes(b"not really a video")
+    communicator = WebsocketCommunicator(URLRouter(websocket_urlpatterns), "/ws/live/")
+    await communicator.connect()
+    await communicator.send_json_to({"action": "start", "source": "broken.mp4"})
+    messages = await receive_until_end(communicator)
+    await communicator.disconnect()
+
+    assert [m["type"] for m in messages] == ["error", "end"]
+    saved = await Session.objects.aget()
+    assert saved.status == Session.Status.FAILED
+    assert "broken.mp4" in saved.error
 
 
 def test_upload_saves_video_without_overwriting(client, video_dir):
@@ -154,3 +195,37 @@ def test_upload_rejects_other_types_and_large_files(client, video_dir, settings)
     too_big = client.post(url, {"file": SimpleUploadedFile("big.mp4", b"x")})
     assert too_big.status_code == 413
     assert not (video_dir / "evil.py").exists()
+
+
+@pytest.fixture
+def past_sessions(db):
+    old = Session.objects.create(source="old.mp4", kind="file", status="completed")
+    new = Session.objects.create(source="0", kind="webcam", status="stopped", duration=12.5)
+    CommentaryLine.objects.create(session=new, timestamp=6.0, text="Second!", latency=8)
+    CommentaryLine.objects.create(session=new, timestamp=3.0, text="First!", latency=9)
+    return old, new
+
+
+def test_sessions_list_newest_first_with_preview(client, past_sessions):
+    old, new = past_sessions
+    results = client.get("/api/sessions/").json()["results"]
+
+    assert [r["id"] for r in results] == [new.pk, old.pk]
+    assert results[0]["lines_count"] == 2
+    assert results[0]["preview"] == "First!"
+    assert results[1]["lines_count"] == 0 and results[1]["preview"] == ""
+    assert "lines" not in results[0]
+
+
+def test_session_detail_has_transcript_in_order(client, past_sessions):
+    _, new = past_sessions
+    body = client.get(f"/api/sessions/{new.pk}/").json()
+    assert [line["text"] for line in body["lines"]] == ["First!", "Second!"]
+    assert body["duration"] == 12.5
+
+
+def test_sessions_can_be_deleted_but_not_created(client, past_sessions):
+    old, _ = past_sessions
+    assert client.delete(f"/api/sessions/{old.pk}/").status_code == 204
+    assert not Session.objects.filter(pk=old.pk).exists()
+    assert client.post("/api/sessions/", {"source": "x"}).status_code == 405

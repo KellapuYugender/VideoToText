@@ -49,9 +49,10 @@ class LiveConsumer(AsyncJsonWebsocketConsumer):
             return
         self.stop = threading.Event()
         commentary = bool(content.get("commentary", True))
-        self.task = asyncio.create_task(self.run(source, commentary, self.stop))
+        label = str(content.get("source", "")).strip()
+        self.task = asyncio.create_task(self.run(source, label, commentary, self.stop))
 
-    async def run(self, source, commentary: bool, stop: threading.Event):
+    async def run(self, source, label: str, commentary: bool, stop: threading.Event):
         loop = asyncio.get_running_loop()
 
         def send(message: dict, wait: bool) -> None:
@@ -60,7 +61,7 @@ class LiveConsumer(AsyncJsonWebsocketConsumer):
                 future.result(timeout=SEND_TIMEOUT)
 
         try:
-            await asyncio.to_thread(stream, source, send, stop, commentary)
+            await asyncio.to_thread(stream, source, label, send, stop, commentary)
         except Exception as exc:
             log.exception("Live stream failed for source %r", source)
             with contextlib.suppress(Exception):
