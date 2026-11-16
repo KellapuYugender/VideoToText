@@ -56,6 +56,13 @@ Face cache).
 
 Admin: http://127.0.0.1:8000/admin/
 
+## Run the demo
+
+After the one-time setup below, double-click **`start-demo.cmd`** (or run
+`.\start-demo.ps1`). It opens the backend and frontend in their own windows, waits until
+both are up, and opens http://localhost:5173. Servers already running are reused. To stop,
+close the two server windows. Use `.\start-demo.ps1 -NoBrowser` to skip opening the browser.
+
 ## Frontend setup
 
 Prerequisites: Node.js 20+. Keep the Django server running, then:
