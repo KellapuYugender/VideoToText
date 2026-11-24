@@ -57,17 +57,22 @@ def build_prompt(previous: list[str], sport: str = "") -> str:
             f"You are an energetic live {sport} commentator. The images are consecutive "
             f"frames from the last few seconds of a {sport} match, oldest first."
         ]
-        ask = "Give the next line of commentary"
+        kind = "commentary"
     else:
         # A sports framing on a non-sports clip makes the model invent a game.
         parts = [
             "You are a live narrator describing a video as it plays. The images are "
             "consecutive frames from the last few seconds, oldest first."
         ]
-        ask = "Give the next line of narration"
+        kind = "narration"
     if previous:
         parts.append("Your previous lines (do not repeat them): " + " | ".join(previous))
-    parts.append(f"{ask}: one short sentence about what is happening now.")
+        ask = f"Give the next line of {kind}"
+    else:
+        # "Next line" with nothing before it gets a stock opener ("A new player joins
+        # the team!"); asking for what is visible keeps it about the frames.
+        ask = f"Give your opening line of {kind}"
+    parts.append(f"{ask}: one short sentence describing what you can see right now.")
     return "\n".join(parts)
 
 

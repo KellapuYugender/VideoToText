@@ -22,6 +22,14 @@ def test_prompt_with_sport_commentates_it():
     prompt = build_prompt(["What a start!"], sport="cricket")
     assert "live cricket commentator" in prompt
     assert "What a start!" in prompt
+    assert "next line of commentary" in prompt
+
+
+def test_first_prompt_asks_for_an_opening_line_about_what_is_visible():
+    prompt = build_prompt([], sport="cricket")
+    assert "opening line of commentary" in prompt
+    assert "what you can see" in prompt
+    assert "previous lines" not in prompt
 
 
 def test_clean_sport_makes_one_short_line():
