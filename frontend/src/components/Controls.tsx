@@ -100,7 +100,7 @@ export function Controls({
 
         <label
           className="field sport"
-          title="Names the sport for the commentator and stops it repeating the detector's guesses (e.g. a cricket ball seen as a frisbee)"
+          title="Leave empty for plain narration of any video; enter a sport (e.g. cricket) for sports commentary"
         >
           <span>Sport (optional)</span>
           <input

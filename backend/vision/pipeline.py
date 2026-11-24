@@ -34,7 +34,7 @@ def run(
         new_events = events.update(detections, frame.timestamp)
         counts = events.counts()
         if feed is not None:
-            feed.push(frame, new_events, counts)
+            feed.push(frame)
         rate = 1 / max(time.perf_counter() - tick, 1e-6)
         fps = 0.9 * fps + 0.1 * rate if fps else rate
         yield Step(frame, detections, new_events, counts, fps)

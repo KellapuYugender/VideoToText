@@ -1,4 +1,4 @@
-"""Live commentary: a small VLM narrates recent frames, grounded by tracker facts.
+"""Live commentary: a small VLM narrates recent frames.
 
 The detection loop calls ``CommentaryFeed.push`` for every frame; the VLM runs on a
 background thread so slow generation never stalls detection.
@@ -9,14 +9,13 @@ import queue
 import re
 import threading
 import time
-from collections import Counter, deque
+from collections import deque
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 
 import cv2
 import numpy as np
 
-from .events import Event
 from .source import Frame
 
 log = logging.getLogger(__name__)
@@ -46,40 +45,44 @@ def clean_sport(raw: object) -> str:
     return text[:MAX_SPORT_LENGTH].strip()
 
 
-def build_prompt(
-    events: list[Event], counts: Counter[str], previous: list[str], sport: str = ""
-) -> str:
+def build_prompt(previous: list[str], sport: str = "") -> str:
+    """Sports commentary when the sport is known, otherwise neutral narration.
+
+    The detector's labels are deliberately left out: it only knows everyday COCO
+    objects, and the small VLM repeats whatever it is told (a cricket ball "frisbee",
+    a street scene that is all "handbags").
+    """
     if sport:
-        # The detector only knows everyday objects (a cricket ball becomes a "frisbee"),
-        # so when the sport is known its labels would mislead more than they help.
         parts = [
             f"You are an energetic live {sport} commentator. The images are consecutive "
             f"frames from the last few seconds of a {sport} match, oldest first."
         ]
+        ask = "Give the next line of commentary"
     else:
+        # A sports framing on a non-sports clip makes the model invent a game.
         parts = [
-            "You are an energetic live sports commentator. The images are consecutive "
-            "frames from the last few seconds, oldest first."
+            "You are a live narrator describing a video as it plays. The images are "
+            "consecutive frames from the last few seconds, oldest first."
         ]
-        if counts:
-            on_screen = ", ".join(f"{n} {label}" for label, n in counts.most_common())
-            parts.append(f"Detected on screen: {on_screen}.")
-        if events:
-            parts.append("Just happened: " + "; ".join(e.describe() for e in events[-6:]) + ".")
+        ask = "Give the next line of narration"
     if previous:
         parts.append("Your previous lines (do not repeat them): " + " | ".join(previous))
-    parts.append(
-        "Give the next line of commentary: one short sentence about what is happening now."
-    )
+    parts.append(f"{ask}: one short sentence about what is happening now.")
     return "\n".join(parts)
+
+
+QUOTES = "\"'“”‘’"
+_QUOTED = re.compile(rf"[{QUOTES}](.+)[{QUOTES}]([.!?]?)")
 
 
 def clean_line(text: str) -> str:
     """First sentence of the first line; small models tend to ramble on."""
-    line = text.strip().splitlines()[0] if text.strip() else ""
-    line = line.strip().strip('"').strip()
+    line = text.strip().splitlines()[0].strip() if text.strip() else ""
+    if quoted := _QUOTED.fullmatch(line):  # 'the city's busy'. -> the city's busy.
+        line = quoted.group(1).strip() + quoted.group(2)
     match = re.match(r"(.+?[.!?])(\s|$)", line)
-    return match.group(1) if match else line
+    line = match.group(1) if match else line
+    return line[:1].upper() + line[1:]
 
 
 class Commentator:
@@ -145,8 +148,8 @@ class CommentaryFeed:
 
     A line is requested every ``interval`` seconds of video time, but only when the
     previous one has finished, so commentary never lags further behind than one call.
-    ``on_line`` is invoked from the worker thread. With ``sport`` set, the prompt names
-    the sport and leaves out the detector's labels and events (see ``build_prompt``).
+    ``on_line`` is invoked from the worker thread. With ``sport`` set the VLM commentates
+    that sport; otherwise it narrates neutrally (see ``build_prompt``).
     """
 
     def __init__(
@@ -166,15 +169,13 @@ class CommentaryFeed:
         self._frames: deque[np.ndarray] = deque(maxlen=frames_per_line)
         self._last_sample = float("-inf")
         self._next_due: float | None = None
-        self._events: list[Event] = []
         self._history: deque[str] = deque(maxlen=history)
         self._jobs: queue.Queue = queue.Queue(maxsize=1)
         self._busy = threading.Event()
         self._thread = threading.Thread(target=self._run, name="commentary", daemon=True)
         self._thread.start()
 
-    def push(self, frame: Frame, events: list[Event], counts: Counter[str]) -> None:
-        self._events.extend(events)
+    def push(self, frame: Frame) -> None:
         if frame.timestamp - self._last_sample >= self._frame_gap:
             self._frames.append(frame.image.copy())
             self._last_sample = frame.timestamp
@@ -183,10 +184,9 @@ class CommentaryFeed:
         if frame.timestamp < self._next_due or self._busy.is_set():
             return
 
-        prompt = build_prompt(self._events, counts, list(self._history), self.sport)
+        prompt = build_prompt(list(self._history), self.sport)
         self._busy.set()
         self._jobs.put((frame.timestamp, list(self._frames), prompt))
-        self._events = []
         self._next_due = frame.timestamp + self.interval
 
     def _run(self) -> None:

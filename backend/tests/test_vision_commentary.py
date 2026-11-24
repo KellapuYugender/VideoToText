@@ -1,11 +1,9 @@
 import threading
 import time
-from collections import Counter
 
 import numpy as np
 
 from vision.commentary import CommentaryFeed, build_prompt, clean_line, clean_sport
-from vision.events import Event
 from vision.source import Frame
 
 
@@ -13,25 +11,16 @@ def frame(t):
     return Frame(index=int(t * 10), timestamp=t, image=np.zeros((4, 4, 3), np.uint8))
 
 
-def test_prompt_includes_tracker_facts_and_history():
-    prompt = build_prompt(
-        [Event("entered", 3, "person", 1.2)], Counter(person=2, ball=1), ["What a start!"]
-    )
-    assert "2 person, 1 ball" in prompt
-    assert "person #3 entered at 1.2s" in prompt
-    assert "What a start!" in prompt
+def test_prompt_without_sport_narrates_neutrally():
+    prompt = build_prompt(["A man crosses the road."])
+    assert "live narrator" in prompt
+    assert "sport" not in prompt and "commentator" not in prompt
+    assert "A man crosses the road." in prompt
 
 
-def test_prompt_with_sport_names_it_and_drops_detector_labels():
-    prompt = build_prompt(
-        [Event("entered", 3, "frisbee", 1.2)],
-        Counter(person=2, frisbee=1),
-        ["What a start!"],
-        sport="cricket",
-    )
+def test_prompt_with_sport_commentates_it():
+    prompt = build_prompt(["What a start!"], sport="cricket")
     assert "live cricket commentator" in prompt
-    assert "frisbee" not in prompt
-    assert "Detected on screen" not in prompt
     assert "What a start!" in prompt
 
 
@@ -48,7 +37,13 @@ def test_clean_line_keeps_first_line_without_quotes():
     assert clean_line("Goal! What a strike. Unbelievable") == "Goal!"
 
 
-def test_feed_requests_lines_on_interval_with_events():
+def test_clean_line_unwraps_quoted_fragments_and_capitalises():
+    assert clean_line("'the city's busy'.") == "The city's busy."
+    assert clean_line("“Six”") == "Six"
+    assert clean_line("a man walks by.") == "A man walks by."
+
+
+def test_feed_requests_lines_on_interval():
     calls, lines = [], []
     done = threading.Event()
 
@@ -61,21 +56,21 @@ def test_feed_requests_lines_on_interval_with_events():
         done.set()
 
     feed = CommentaryFeed(fake_vlm, on_line, interval=1.0, frames_per_line=2)
-    feed.push(frame(0.0), [Event("entered", 1, "person", 0.0)], Counter(person=1))
-    feed.push(frame(0.5), [], Counter(person=1))
+    feed.push(frame(0.0))
+    feed.push(frame(0.5))
     assert calls == []  # not due yet
-    feed.push(frame(1.0), [], Counter(person=1))
+    feed.push(frame(1.0))
     assert done.wait(2)
     feed.close()
 
     assert len(calls) == 1
     n_images, prompt = calls[0]
     assert n_images == 2
-    assert "person #1 entered" in prompt
+    assert "live narrator" in prompt
     assert lines[0].text == "line 1" and lines[0].timestamp == 1.0
 
 
-def test_feed_skips_while_busy_and_keeps_events():
+def test_feed_skips_while_busy_and_remembers_previous_lines():
     release, finished = threading.Event(), threading.Event()
     prompts = []
 
@@ -85,9 +80,9 @@ def test_feed_skips_while_busy_and_keeps_events():
         return "ok"
 
     feed = CommentaryFeed(slow_vlm, lambda line: finished.set(), interval=1.0)
-    feed.push(frame(0.0), [], Counter())  # starts the clock
-    feed.push(frame(1.0), [], Counter())  # first request
-    feed.push(frame(2.0), [Event("left", 9, "ball", 2.0)], Counter())  # busy: skipped
+    feed.push(frame(0.0))  # starts the clock
+    feed.push(frame(1.0))  # first request
+    feed.push(frame(2.0))  # busy: skipped
     assert len(prompts) <= 1
     release.set()
     assert finished.wait(2)
@@ -95,8 +90,8 @@ def test_feed_skips_while_busy_and_keeps_events():
         if not feed._busy.is_set():
             break
         time.sleep(0.01)
-    feed.push(frame(2.5), [], Counter())
+    feed.push(frame(2.5))
     feed.close()
 
     assert len(prompts) == 2
-    assert "ball #9 left" in prompts[1]  # event carried over to the next line
+    assert "ok" in prompts[1]  # the first line is passed on so it isn't repeated
