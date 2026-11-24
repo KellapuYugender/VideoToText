@@ -36,7 +36,12 @@ def encode_jpeg(image: np.ndarray, max_width: int, quality: int) -> str:
 
 
 def stream(
-    source: str | int, label: str, send: Send, stop: threading.Event, commentary: bool
+    source: str | int,
+    label: str,
+    send: Send,
+    stop: threading.Event,
+    commentary: bool,
+    sport: str = "",
 ) -> None:
     """Blocking; run it in a worker thread. Returns at end of video or when ``stop`` is set.
 
@@ -64,7 +69,9 @@ def stream(
                 if not stop.is_set():
                     send({"type": "commentary", **line.to_dict()}, False)
 
-            feed = CommentaryFeed(engines.comment, on_line, interval=settings.COMMENTARY_INTERVAL)
+            feed = CommentaryFeed(
+                engines.comment, on_line, interval=settings.COMMENTARY_INTERVAL, sport=sport
+            )
 
         with FrameSource(source) as src:
             width, height = src.size

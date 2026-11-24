@@ -5,6 +5,8 @@ import threading
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
+from vision.commentary import clean_sport
+
 from .sources import resolve_source
 from .streaming import stream
 
@@ -16,7 +18,7 @@ SEND_TIMEOUT = 10  # seconds a frame may wait for the client before the stream g
 class LiveConsumer(AsyncJsonWebsocketConsumer):
     """One WebSocket runs at most one stream at a time.
 
-    Client -> server: {"action": "start", "source": "...", "commentary": true}
+    Client -> server: {"action": "start", "source": "...", "commentary": true, "sport": "cricket"}
                       {"action": "stop"}
     Server -> client: session, frame, event, commentary, error, end (see streaming.py)
     """
@@ -49,10 +51,11 @@ class LiveConsumer(AsyncJsonWebsocketConsumer):
             return
         self.stop = threading.Event()
         commentary = bool(content.get("commentary", True))
+        sport = clean_sport(content.get("sport"))
         label = str(content.get("source", "")).strip()
-        self.task = asyncio.create_task(self.run(source, label, commentary, self.stop))
+        self.task = asyncio.create_task(self.run(source, label, commentary, sport, self.stop))
 
-    async def run(self, source, label: str, commentary: bool, stop: threading.Event):
+    async def run(self, source, label: str, commentary: bool, sport: str, stop: threading.Event):
         loop = asyncio.get_running_loop()
 
         def send(message: dict, wait: bool) -> None:
@@ -61,7 +64,7 @@ class LiveConsumer(AsyncJsonWebsocketConsumer):
                 future.result(timeout=SEND_TIMEOUT)
 
         try:
-            await asyncio.to_thread(stream, source, label, send, stop, commentary)
+            await asyncio.to_thread(stream, source, label, send, stop, commentary, sport)
         except Exception as exc:
             log.exception("Live stream failed for source %r", source)
             with contextlib.suppress(Exception):

@@ -127,6 +127,27 @@ async def test_stream_sends_session_frames_events_commentary(video_dir, fake_mod
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
+async def test_sport_reaches_the_commentary_prompt(video_dir, fake_models, monkeypatch):
+    prompts = []
+
+    def fake_comment(images, prompt):
+        prompts.append(prompt)
+        return "What a shot!"
+
+    monkeypatch.setattr(engines, "comment", fake_comment)
+    communicator = WebsocketCommunicator(URLRouter(websocket_urlpatterns), "/ws/live/")
+    await communicator.connect()
+    await communicator.send_json_to({"action": "start", "source": "clip.mp4", "sport": "cricket"})
+    await receive_until_end(communicator)
+    await communicator.disconnect()
+
+    assert prompts
+    assert all("live cricket commentator" in p for p in prompts)
+    assert not any("person" in p for p in prompts)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
 async def test_stream_rejects_bad_source_and_unknown_action(video_dir, fake_models):
     communicator = WebsocketCommunicator(URLRouter(websocket_urlpatterns), "/ws/live/")
     await communicator.connect()

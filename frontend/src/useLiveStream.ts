@@ -68,7 +68,7 @@ export function useLiveStream(onFrame: (frame: FrameMessage, session: SessionMes
   }, [])
 
   const start = useCallback(
-    (source: string, commentary: boolean) => {
+    (source: string, commentary: boolean, sport = '') => {
       socketRef.current?.close()
       sessionRef.current = null
       setSession(null)
@@ -83,7 +83,8 @@ export function useLiveStream(onFrame: (frame: FrameMessage, session: SessionMes
 
       const socket = new WebSocket(liveSocketUrl())
       socketRef.current = socket
-      socket.onopen = () => socket.send(JSON.stringify({ action: 'start', source, commentary }))
+      socket.onopen = () =>
+        socket.send(JSON.stringify({ action: 'start', source, commentary, sport }))
       socket.onmessage = (e) => handle(JSON.parse(e.data) as ServerMessage)
       socket.onerror = () => {
         if (socketRef.current !== socket) return

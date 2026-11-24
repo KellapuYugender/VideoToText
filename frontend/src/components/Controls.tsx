@@ -8,7 +8,7 @@ const URL_OPTION = '__url__'
 type Props = {
   running: boolean
   speechSupported: boolean
-  options: { commentary: boolean; voice: boolean; boxes: boolean }
+  options: { commentary: boolean; voice: boolean; boxes: boolean; sport: string }
   onOptionsChange: (options: Props['options']) => void
   onStart: (source: string) => void
   onStop: () => void
@@ -60,7 +60,7 @@ export function Controls({
   }
 
   const source = choice === URL_OPTION ? url.trim() : choice
-  const toggle = (key: keyof Props['options']) =>
+  const toggle = (key: 'commentary' | 'voice' | 'boxes') =>
     onOptionsChange({ ...options, [key]: !options[key] })
 
   return (
@@ -97,6 +97,21 @@ export function Controls({
             />
           </label>
         )}
+
+        <label
+          className="field sport"
+          title="Names the sport for the commentator and stops it repeating the detector's guesses (e.g. a cricket ball seen as a frisbee)"
+        >
+          <span>Sport (optional)</span>
+          <input
+            type="text"
+            placeholder="e.g. cricket"
+            maxLength={40}
+            value={options.sport}
+            onChange={(e) => onOptionsChange({ ...options, sport: e.target.value })}
+            disabled={running || !options.commentary}
+          />
+        </label>
 
         <input
           ref={fileInput}

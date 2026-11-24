@@ -37,16 +37,35 @@ class CommentaryLine:
         return asdict(self)
 
 
-def build_prompt(events: list[Event], counts: Counter[str], previous: list[str]) -> str:
-    parts = [
-        "You are an energetic live sports commentator. The images are consecutive "
-        "frames from the last few seconds, oldest first."
-    ]
-    if counts:
-        on_screen = ", ".join(f"{n} {label}" for label, n in counts.most_common())
-        parts.append(f"Detected on screen: {on_screen}.")
-    if events:
-        parts.append("Just happened: " + "; ".join(e.describe() for e in events[-6:]) + ".")
+MAX_SPORT_LENGTH = 40
+
+
+def clean_sport(raw: object) -> str:
+    """A sport name safe to put in the prompt: one line, short, or "" for none."""
+    text = " ".join(str(raw or "").split())
+    return text[:MAX_SPORT_LENGTH].strip()
+
+
+def build_prompt(
+    events: list[Event], counts: Counter[str], previous: list[str], sport: str = ""
+) -> str:
+    if sport:
+        # The detector only knows everyday objects (a cricket ball becomes a "frisbee"),
+        # so when the sport is known its labels would mislead more than they help.
+        parts = [
+            f"You are an energetic live {sport} commentator. The images are consecutive "
+            f"frames from the last few seconds of a {sport} match, oldest first."
+        ]
+    else:
+        parts = [
+            "You are an energetic live sports commentator. The images are consecutive "
+            "frames from the last few seconds, oldest first."
+        ]
+        if counts:
+            on_screen = ", ".join(f"{n} {label}" for label, n in counts.most_common())
+            parts.append(f"Detected on screen: {on_screen}.")
+        if events:
+            parts.append("Just happened: " + "; ".join(e.describe() for e in events[-6:]) + ".")
     if previous:
         parts.append("Your previous lines (do not repeat them): " + " | ".join(previous))
     parts.append(
@@ -126,7 +145,8 @@ class CommentaryFeed:
 
     A line is requested every ``interval`` seconds of video time, but only when the
     previous one has finished, so commentary never lags further behind than one call.
-    ``on_line`` is invoked from the worker thread.
+    ``on_line`` is invoked from the worker thread. With ``sport`` set, the prompt names
+    the sport and leaves out the detector's labels and events (see ``build_prompt``).
     """
 
     def __init__(
@@ -136,10 +156,12 @@ class CommentaryFeed:
         interval: float = 3.0,
         frames_per_line: int = 2,
         history: int = 3,
+        sport: str = "",
     ):
         self.commentator = commentator
         self.on_line = on_line
         self.interval = interval
+        self.sport = clean_sport(sport)
         self._frame_gap = interval / frames_per_line
         self._frames: deque[np.ndarray] = deque(maxlen=frames_per_line)
         self._last_sample = float("-inf")
@@ -161,7 +183,7 @@ class CommentaryFeed:
         if frame.timestamp < self._next_due or self._busy.is_set():
             return
 
-        prompt = build_prompt(self._events, counts, list(self._history))
+        prompt = build_prompt(self._events, counts, list(self._history), self.sport)
         self._busy.set()
         self._jobs.put((frame.timestamp, list(self._frames), prompt))
         self._events = []

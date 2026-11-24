@@ -71,6 +71,9 @@ def main() -> None:
     parser.add_argument("--vlm", default=DEFAULT_VLM, help="Hugging Face model id")
     parser.add_argument("--interval", type=float, default=3.0, help="seconds between lines")
     parser.add_argument(
+        "--sport", default="", help="e.g. cricket; names it in the prompt, drops detector labels"
+    )
+    parser.add_argument(
         "--realtime", action="store_true", help="play files at real speed, dropping frames"
     )
     args = parser.parse_args()
@@ -89,7 +92,9 @@ def main() -> None:
             print(f"[{line.timestamp:6.1f}s] {line.text}  ({line.latency:.1f}s)")
 
         print(f"Loading {args.vlm} ...")
-        feed = CommentaryFeed(Commentator(args.vlm), on_line, interval=args.interval)
+        feed = CommentaryFeed(
+            Commentator(args.vlm), on_line, interval=args.interval, sport=args.sport
+        )
     writer = None
     processed = 0
     started = time.perf_counter()

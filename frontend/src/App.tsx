@@ -17,7 +17,12 @@ const STATUS_LABEL: Record<Status, string> = {
 }
 
 export default function App() {
-  const [options, setOptions] = useState({ commentary: true, voice: true, boxes: true })
+  const [options, setOptions] = useState({
+    commentary: true,
+    voice: true,
+    boxes: true,
+    sport: '',
+  })
   const [view, setView] = useState<'live' | 'history'>('live')
   const [historyId, setHistoryId] = useState<number | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -113,7 +118,7 @@ export default function App() {
           speechSupported={speechSupported}
           options={options}
           onOptionsChange={setOptions}
-          onStart={(source) => stream.start(source, options.commentary)}
+          onStart={(source) => stream.start(source, options.commentary, options.sport.trim())}
           onStop={stream.stop}
         />
 

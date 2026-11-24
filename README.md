@@ -95,7 +95,10 @@ cd backend
   `GET /api/sessions/<id>/` includes the transcript; `DELETE` removes one.
 - WebSocket `ws://127.0.0.1:8000/ws/live/`:
   - send `{"action": "start", "source": "match.mp4", "commentary": true}`; `source` is a
-    file in `media/videos/`, a webcam index such as `"0"`, or an `rtsp://`/`http(s)://` URL
+    file in `media/videos/`, a webcam index such as `"0"`, or an `rtsp://`/`http(s)://` URL;
+    optional `"sport": "cricket"` names the sport for the commentator and leaves the
+    detector's labels out of its prompt (they are everyday COCO objects, so a cricket ball
+    can show up as a "frisbee")
   - send `{"action": "stop"}` to end it early
   - receive `session` (`session_id`, size, fps), then `frame` (base64 JPEG, `detections` with boxes in
     source pixels, `counts`), `event` (entered/left), `commentary`, and finally `end`;

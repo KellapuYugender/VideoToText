@@ -4,7 +4,7 @@ from collections import Counter
 
 import numpy as np
 
-from vision.commentary import CommentaryFeed, build_prompt, clean_line
+from vision.commentary import CommentaryFeed, build_prompt, clean_line, clean_sport
 from vision.events import Event
 from vision.source import Frame
 
@@ -20,6 +20,26 @@ def test_prompt_includes_tracker_facts_and_history():
     assert "2 person, 1 ball" in prompt
     assert "person #3 entered at 1.2s" in prompt
     assert "What a start!" in prompt
+
+
+def test_prompt_with_sport_names_it_and_drops_detector_labels():
+    prompt = build_prompt(
+        [Event("entered", 3, "frisbee", 1.2)],
+        Counter(person=2, frisbee=1),
+        ["What a start!"],
+        sport="cricket",
+    )
+    assert "live cricket commentator" in prompt
+    assert "frisbee" not in prompt
+    assert "Detected on screen" not in prompt
+    assert "What a start!" in prompt
+
+
+def test_clean_sport_makes_one_short_line():
+    assert clean_sport("  cricket\n") == "cricket"
+    assert clean_sport("ice\n\nhockey") == "ice hockey"
+    assert clean_sport(None) == ""
+    assert len(clean_sport("x" * 500)) == 40
 
 
 def test_clean_line_keeps_first_line_without_quotes():
