@@ -10,8 +10,9 @@ import re
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
+from difflib import SequenceMatcher
 
 import cv2
 import numpy as np
@@ -87,6 +88,7 @@ def clean_line(text: str) -> str:
         line = quoted.group(1).strip() + quoted.group(2)
     match = re.match(r"(.+?[.!?])(\s|$)", line)
     line = match.group(1) if match else line
+    line = re.sub(r"([.!?])[.!?]+$", r"\1", line)  # "his move!." -> "his move!"
     return line[:1].upper() + line[1:]
 
 
@@ -148,11 +150,36 @@ class Commentator:
         return clean_line(self.processor.batch_decode(new_tokens, skip_special_tokens=True)[0])
 
 
+# Measured on real transcripts: rephrased repeats score 0.70-0.96 on content words,
+# different lines with the same scaffolding ("a man in a ... walks down") up to 0.62.
+REPEAT_SIMILARITY = 0.65
+FILLER_WORDS = frozenset(
+    "a an the is are was were be being been in on at of to for with by and or as his her "
+    "their its he she they it this that while who has have just after into onto over from "
+    "up down there here what which".split()
+)
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z0-9']+", text.lower()) if w not in FILLER_WORDS]
+
+
+def is_repeat(text: str, previous: Iterable[str], threshold: float = REPEAT_SIMILARITY) -> bool:
+    """True when ``text`` says nearly the same as one of ``previous``.
+
+    The small VLM ignores "do not repeat" and rephrases the same line slightly, so
+    lines are compared on their content words, in order.
+    """
+    words = _words(text)
+    return any(SequenceMatcher(None, words, _words(line)).ratio() >= threshold for line in previous)
+
+
 class CommentaryFeed:
-    """Samples frames and events from the detection loop and narrates them in the background.
+    """Samples frames from the detection loop and narrates them in the background.
 
     A line is requested every ``interval`` seconds of video time, but only when the
     previous one has finished, so commentary never lags further behind than one call.
+    A line that nearly repeats one of the last ``history`` lines is dropped.
     ``on_line`` is invoked from the worker thread. With ``sport`` set the VLM commentates
     that sport; otherwise it narrates neutrally (see ``build_prompt``).
     """
@@ -203,7 +230,9 @@ class CommentaryFeed:
             except Exception:
                 log.exception("Commentary generation failed")
                 text = ""
-            if text:
+            if text and is_repeat(text, self._history):
+                log.debug("Skipped repeated line: %s", text)
+            elif text:
                 self._history.append(text)
                 latency = round(time.perf_counter() - started, 2)
                 self.on_line(CommentaryLine(timestamp, text, latency))

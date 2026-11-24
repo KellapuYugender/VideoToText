@@ -3,7 +3,13 @@ import time
 
 import numpy as np
 
-from vision.commentary import CommentaryFeed, build_prompt, clean_line, clean_sport
+from vision.commentary import (
+    CommentaryFeed,
+    build_prompt,
+    clean_line,
+    clean_sport,
+    is_repeat,
+)
 from vision.source import Frame
 
 
@@ -49,6 +55,54 @@ def test_clean_line_unwraps_quoted_fragments_and_capitalises():
     assert clean_line("'the city's busy'.") == "The city's busy."
     assert clean_line("“Six”") == "Six"
     assert clean_line("a man walks by.") == "A man walks by."
+    assert clean_line("The crowd cheers for him to make his move!.") == (
+        "The crowd cheers for him to make his move!"
+    )
+
+
+def test_is_repeat_catches_rephrasings_but_keeps_new_lines():
+    # Real consecutive lines from a cricket clip and a street walk.
+    first = (
+        "A young boy is celebrating his victory by raising his arms high above his head "
+        "as he looks up to celebrate."
+    )
+    rephrased = (
+        "A young boy celebrates his victory by raising his arms high above his head while "
+        "looking up to cheer for his team."
+    )
+    assert is_repeat(rephrased, [first])
+    assert is_repeat(first, ["Something else.", first])
+    assert not is_repeat(
+        "A man in a brown jacket walks down the street with his backpack on.",
+        ["A man in a beige jacket walks down the street with his blue bag by his side."],
+    )
+    assert not is_repeat(first, [])
+
+
+def test_feed_drops_repeated_lines():
+    replies = iter(["The bowler runs in.", "The bowler runs in!", "A big appeal."])
+    lines, done = [], threading.Event()
+
+    def on_line(line):
+        lines.append(line.text)
+
+    def fake_vlm(images, prompt):
+        text = next(replies, "")
+        if text == "A big appeal.":
+            done.set()
+        return text
+
+    feed = CommentaryFeed(fake_vlm, on_line, interval=1.0)
+    feed.push(frame(0.0))
+    for t in range(1, 50):
+        while feed._busy.is_set():
+            time.sleep(0.01)
+        feed.push(frame(float(t)))
+        if done.is_set():
+            break
+    feed.close()
+
+    assert lines == ["The bowler runs in.", "A big appeal."]
 
 
 def test_feed_requests_lines_on_interval():
